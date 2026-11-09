@@ -1,49 +1,164 @@
 import { useState, useEffect, useRef } from 'react';
-import { Sun, Moon, LogOut, History, Settings, Play } from 'lucide-react';
+import {
+  Sun, Moon, LogOut, History, SlidersHorizontal, Play,
+  Menu, Clock, Zap
+} from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useAuth } from '../../context/AuthContext';
-import AdaptiveNav from '../layout/AdaptiveNav';
+import AdaptiveNav from './AdaptiveNav';
+import BeforeAfterPanel from './BeforeAfterPanel';
 import IntentBar from './IntentBar';
-import TaskBanner from '../layout/TaskBanner';
-import LoadingSkeleton from '../layout/LoadingSkeleton';
-import BeforeAfterPanel from '../layout/BeforeAfterPanel';
 import DashboardLayout from './DashboardLayout';
 import { defaultLayout } from './componentRegistry';
 import axios from '../../api/axios';
 
-// Demo layouts used in demo mode (no API call needed)
-const DEMO_LAYOUTS = [
-  {
+// ---------------------------------------------------------------------------
+// Inline placeholder for FeedbackWidget (replaced in Phase 5)
+// ---------------------------------------------------------------------------
+function FeedbackWidget({ interactionId, onFeedbackSubmit }) {
+  return (
+    <div className="mt-6 p-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 flex items-center justify-between text-sm">
+      <span className="text-gray-600 dark:text-gray-400">Was this layout helpful?</span>
+      <div className="flex gap-2">
+        <button
+          onClick={onFeedbackSubmit}
+          className="px-3 py-1.5 rounded-lg bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 hover:bg-green-200 transition-colors"
+        >
+          👍 Yes
+        </button>
+        <button
+          onClick={onFeedbackSubmit}
+          className="px-3 py-1.5 rounded-lg bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400 hover:bg-gray-200 transition-colors"
+        >
+          👎 No
+        </button>
+        <button
+          onClick={onFeedbackSubmit}
+          className="px-2 py-1.5 rounded-lg text-gray-400 hover:text-gray-600 transition-colors text-xs"
+        >
+          Dismiss
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Inline LoadingGrid
+// ---------------------------------------------------------------------------
+function LoadingGrid() {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      {Array.from({ length: 6 }).map((_, i) => (
+        <div
+          key={i}
+          className="h-48 rounded-xl bg-gray-200 dark:bg-gray-700 animate-pulse"
+        />
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Inline TaskBanner
+// ---------------------------------------------------------------------------
+function TaskBanner({ taskTitle, description, onReset, onShowComparison }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -12 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -12 }}
+      transition={{ duration: 0.25 }}
+      className="mb-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4 flex items-start justify-between gap-4"
+    >
+      <div className="flex items-start gap-3">
+        <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center flex-shrink-0">
+          <Zap size={16} className="text-white" />
+        </div>
+        <div>
+          <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-100">{taskTitle}</h3>
+          {description && (
+            <p className="text-sm text-blue-700 dark:text-blue-300 mt-0.5">{description}</p>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <button
+          onClick={onShowComparison}
+          className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-medium"
+        >
+          Show Comparison
+        </button>
+        <button
+          onClick={onReset}
+          className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 bg-white dark:bg-gray-700 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 transition-colors"
+        >
+          Return to Default
+        </button>
+      </div>
+    </motion.div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Fallback layouts for demo mode
+// ---------------------------------------------------------------------------
+const FALLBACK_LAYOUTS = {
+  transaction_investigation: {
     intent: 'transaction_investigation',
     taskTitle: 'Investigate Failed Transactions',
-    description: 'Analyzing today\'s failed payment transactions.',
-    layout: { columns: 2 },
-    visibleComponents: ['FailureAnalytics', 'FailedTransactionTable', 'ErrorDistribution', 'ResolutionPanel'],
+    description: 'Analyze today failed payment transactions and identify resolution paths.',
+    layout: { type: 'investigation', columns: 2 },
+    visibleComponents: ['FailureAnalytics', 'FailedTransactionTable', 'ErrorDistribution', 'ResolutionPanel', 'TransactionTable'],
+    hiddenComponents: ['RevenueChart', 'CustomerGrowthChart', 'MarketingAnalytics'],
+    navigation: ['Investigation Overview', 'Failed Transactions', 'Failure Analysis', 'Resolution'],
   },
-  {
+  revenue_analysis: {
     intent: 'revenue_analysis',
-    taskTitle: 'Revenue Analysis',
-    description: 'Reviewing monthly revenue growth and regional performance.',
-    layout: { columns: 2 },
-    visibleComponents: ['RevenueCard', 'RevenueChart', 'RegionalSalesChart', 'RegionalComparison'],
+    taskTitle: 'Revenue Growth Analysis',
+    description: 'Analyze this month revenue growth trends and regional performance.',
+    layout: { type: 'analysis', columns: 2 },
+    visibleComponents: ['RevenueCard', 'RevenueChart', 'SalesChart', 'RegionalSalesChart', 'ProductPerformance'],
+    hiddenComponents: ['NotificationPanel', 'MarketingAnalytics', 'TransactionTable'],
+    navigation: ['Revenue Overview', 'Monthly Trends', 'Regional Performance', 'Comparison'],
   },
-  {
+  customer_analysis: {
     intent: 'customer_analysis',
-    taskTitle: 'Customer Analysis',
-    description: 'Identifying churned and at-risk customers.',
-    layout: { columns: 2 },
-    visibleComponents: ['CustomerCard', 'CustomerSegmentation', 'ChurnAnalysis', 'CustomerLifetimeValue'],
+    taskTitle: 'Customer Churn Analysis',
+    description: 'Identify customers who stopped purchasing and analyze churn patterns.',
+    layout: { type: 'analysis', columns: 2 },
+    visibleComponents: ['CustomerCard', 'CustomerSegmentation', 'ChurnAnalysis', 'CustomerLifetimeValue', 'EngagementMetrics'],
+    hiddenComponents: ['RevenueChart', 'SalesChart', 'MarketingAnalytics'],
+    navigation: ['Customer Overview', 'Segments', 'Churn Analysis', 'Lifetime Value'],
   },
-  {
+  product_performance: {
     intent: 'product_performance',
-    taskTitle: 'Product Performance',
-    description: 'Products ranked by revenue and declining sales overview.',
-    layout: { columns: 2 },
-    visibleComponents: ['ProductRankingTable', 'DecliningSalesChart', 'InventoryStatus', 'ProfitMarginChart'],
+    taskTitle: 'Product Performance Review',
+    description: 'Review product rankings, declining sales, inventory, and profit margins.',
+    layout: { type: 'grid', columns: 2 },
+    visibleComponents: ['ProductPerformance', 'ProductRankingTable', 'DecliningSalesChart', 'InventoryStatus', 'ProfitMarginChart'],
+    hiddenComponents: ['RevenueChart', 'CustomerGrowthChart', 'NotificationPanel'],
+    navigation: ['Product Overview', 'Rankings', 'Declining Sales', 'Inventory', 'Margins'],
   },
-];
+  regional_sales: {
+    intent: 'regional_sales',
+    taskTitle: 'Regional Sales Report',
+    description: 'Analyze sales performance across all regions, cities, and sales representatives.',
+    layout: { type: 'map', columns: 2 },
+    visibleComponents: ['RegionalSalesChart', 'RegionalMap', 'CityPerformance', 'SalesRepPerformance', 'RegionalComparison'],
+    hiddenComponents: ['NotificationPanel', 'MarketingAnalytics', 'TransactionTable'],
+    navigation: ['Regional Overview', 'Map View', 'City Performance', 'Sales Reps'],
+  },
+};
 
+// ---------------------------------------------------------------------------
+// Main Component
+// ---------------------------------------------------------------------------
 export default function AdaptiveDashboard() {
   const { user, logout } = useAuth();
+
+  // Detect mobile on first render
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
 
   const [layoutConfig, setLayoutConfig] = useState(null);
   const [previousLayout, setPreviousLayout] = useState(null);
@@ -56,14 +171,15 @@ export default function AdaptiveDashboard() {
   const [taskDescription, setTaskDescription] = useState('');
   const [interactionId, setInteractionId] = useState(null);
   const [isDark, setIsDark] = useState(() => localStorage.getItem('wm_theme') === 'dark');
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(!isMobile);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [isDemoMode, setIsDemoMode] = useState(false);
+  const [isDemoRunning, setIsDemoRunning] = useState(false);
+  const [activeNavItem, setActiveNavItem] = useState('Overview');
 
   const feedbackTimerRef = useRef(null);
 
-  // Apply dark mode on mount and on change
+  // Apply dark mode class
   useEffect(() => {
     if (isDark) {
       document.documentElement.classList.add('dark');
@@ -71,6 +187,15 @@ export default function AdaptiveDashboard() {
       document.documentElement.classList.remove('dark');
     }
   }, [isDark]);
+
+  // Responsive: close sidebar when window becomes narrow
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth < 768) setIsSidebarOpen(false);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const toggleTheme = () => {
     const next = !isDark;
@@ -80,39 +205,7 @@ export default function AdaptiveDashboard() {
 
   const visibleComponents = layoutConfig?.visibleComponents || defaultLayout;
 
-  const handleLayoutChange = async (queryOrConfig, incomingInteractionId) => {
-    // If called with a string (from IntentBar), send to API
-    if (typeof queryOrConfig === 'string') {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const res = await axios.post('/api/layout/transform', { query: queryOrConfig });
-        const config = res.data;
-        applyLayout(config, config.interactionId || Date.now().toString());
-      } catch (err) {
-        // Fallback: try keyword matching
-        const q = queryOrConfig.toLowerCase();
-        const fallback = DEMO_LAYOUTS.find(l =>
-          l.intent.includes(q.split(' ')[0]) ||
-          q.includes('fail') && l.intent === 'transaction_investigation' ||
-          q.includes('revenue') && l.intent === 'revenue_analysis' ||
-          q.includes('customer') && l.intent === 'customer_analysis' ||
-          q.includes('product') && l.intent === 'product_performance'
-        );
-        if (fallback) {
-          applyLayout(fallback, Date.now().toString());
-        } else {
-          setError('Could not transform layout. Please try a different query.');
-        }
-      } finally {
-        setIsLoading(false);
-      }
-    } else {
-      // Called with a config object (demo mode)
-      applyLayout(queryOrConfig, incomingInteractionId || Date.now().toString());
-    }
-  };
-
+  // Core: apply a layout config
   const applyLayout = async (config, id) => {
     setPreviousLayout(visibleComponents);
     setLayoutConfig(config);
@@ -122,20 +215,53 @@ export default function AdaptiveDashboard() {
     setTaskTitle(config.taskTitle || '');
     setTaskDescription(config.description || '');
     setShowFeedback(true);
+    if (config.navigation?.length) setActiveNavItem(config.navigation[0]);
 
-    // Auto-save workspace
+    // Non-critical auto-save
     try {
       await axios.post('/api/workspaces', {
         name: config.taskTitle || 'Saved Layout',
         layoutConfig: config,
       });
     } catch {
-      // Non-critical: swallow save errors
+      // swallow
     }
 
-    // Hide feedback after 30s
     if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
     feedbackTimerRef.current = setTimeout(() => setShowFeedback(false), 30000);
+  };
+
+  // Handle layout change from IntentBar (string) or direct config (object)
+  const handleLayoutChange = async (queryOrConfig, incomingInteractionId) => {
+    if (typeof queryOrConfig === 'string') {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const res = await axios.post('/api/layout/transform', { query: queryOrConfig });
+        const config = res.data;
+        await applyLayout(config, config.interactionId || Date.now().toString());
+      } catch {
+        // Keyword fallback
+        const q = queryOrConfig.toLowerCase();
+        let matched = null;
+        if (q.includes('fail') || q.includes('transaction')) matched = FALLBACK_LAYOUTS.transaction_investigation;
+        else if (q.includes('revenue')) matched = FALLBACK_LAYOUTS.revenue_analysis;
+        else if (q.includes('customer') || q.includes('churn')) matched = FALLBACK_LAYOUTS.customer_analysis;
+        else if (q.includes('product')) matched = FALLBACK_LAYOUTS.product_performance;
+        else if (q.includes('region') || q.includes('sales report')) matched = FALLBACK_LAYOUTS.regional_sales;
+
+        if (matched) {
+          await applyLayout(matched, Date.now().toString());
+        } else {
+          setError('Could not transform layout. Please try a different query.');
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    } else {
+      // Config object passed directly (demo mode, history restore)
+      await applyLayout(queryOrConfig, incomingInteractionId || Date.now().toString());
+    }
   };
 
   const handleReset = () => {
@@ -147,29 +273,27 @@ export default function AdaptiveDashboard() {
     setTaskDescription('');
     setInteractionId(null);
     setShowFeedback(false);
+    setActiveNavItem('Overview');
+    if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
   };
 
-  const handleRestoreLayout = (savedConfig) => {
-    applyLayout(savedConfig, Date.now().toString());
-    setShowHistory(false);
-  };
-
-  // Demo mode: cycle through 4 layouts with 3s intervals
+  // Demo mode: cycle through 3 layouts then reset
   const runDemo = async () => {
-    if (isDemoMode) return;
-    setIsDemoMode(true);
-    handleReset();
-
-    for (let i = 0; i < DEMO_LAYOUTS.length; i++) {
-      await new Promise(resolve => setTimeout(resolve, i === 0 ? 500 : 3000));
-      applyLayout(DEMO_LAYOUTS[i], `demo-${i}`);
+    if (isDemoRunning) return;
+    setIsDemoRunning(true);
+    const sequence = ['transaction_investigation', 'revenue_analysis', 'regional_sales'];
+    for (const intent of sequence) {
+      await new Promise(r => setTimeout(r, 3000));
+      handleLayoutChange(FALLBACK_LAYOUTS[intent], null);
     }
-
-    setIsDemoMode(false);
+    await new Promise(r => setTimeout(r, 4000));
+    handleReset();
+    setIsDemoRunning(false);
   };
 
+  // Nav items: array of strings when transformed, undefined otherwise
   const navItems = isTransformed && layoutConfig?.navigation
-    ? layoutConfig.navigation.map(label => ({ key: label.toLowerCase().replace(/\s+/g, '_'), label }))
+    ? layoutConfig.navigation
     : undefined;
 
   return (
@@ -177,50 +301,78 @@ export default function AdaptiveDashboard() {
       {/* Sidebar */}
       <AdaptiveNav
         navItems={navItems}
+        activeItem={activeNavItem}
+        onItemClick={setActiveNavItem}
+        onReset={isTransformed ? handleReset : undefined}
+        taskTitle={taskTitle}
+        isTransformed={isTransformed}
         isOpen={isSidebarOpen}
         onToggle={() => setIsSidebarOpen(o => !o)}
+        userName={user?.name}
       />
 
       {/* Main area */}
-      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Top Bar */}
-        <header className="flex-shrink-0 flex items-center justify-between px-6 py-3 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shadow-sm">
-          <div>
-            <p className="text-sm font-medium text-gray-900 dark:text-white">
-              Welcome back, <span className="text-blue-600">{user?.name || 'User'}</span>
-            </p>
-            <p className="text-xs text-gray-400 dark:text-gray-500">
-              {isTransformed ? taskTitle : 'Overview Dashboard'}
-            </p>
+        <header className="flex-shrink-0 flex items-center justify-between px-4 py-3 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shadow-sm">
+          {/* Left: hamburger */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setIsSidebarOpen(o => !o)}
+              className="p-2 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              title="Toggle sidebar"
+            >
+              <Menu size={20} />
+            </button>
+            {/* Center brand text — hidden on very small screens */}
+            <span className="hidden sm:block text-lg font-bold text-gray-900 dark:text-white tracking-tight">
+              WebMorph
+            </span>
           </div>
 
-          <div className="flex items-center gap-2">
+          {/* Right controls */}
+          <div className="flex items-center gap-1.5">
             {/* Demo button */}
             <button
               onClick={runDemo}
-              disabled={isDemoMode}
+              disabled={isDemoRunning}
               title="Run demo mode"
               className="flex items-center gap-1.5 text-sm text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60 px-3 py-1.5 rounded-lg transition-colors"
             >
-              <Play size={14} /> {isDemoMode ? 'Demo running…' : 'Demo'}
+              <Play size={14} />
+              <span className="hidden sm:inline">{isDemoRunning ? 'Running…' : 'Demo'}</span>
             </button>
+
+            {/* isDemoRunning badge */}
+            <AnimatePresence>
+              {isDemoRunning && (
+                <motion.span
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.8 }}
+                  className="hidden sm:inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300"
+                >
+                  Demo mode
+                </motion.span>
+              )}
+            </AnimatePresence>
 
             {/* History button */}
             <button
-              onClick={() => setShowHistory(o => !o)}
+              onClick={() => { setShowHistory(o => !o); setShowPersonalization(false); }}
               title="Layout history"
               className="p-2 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
             >
-              <History size={18} />
+              <Clock size={18} />
             </button>
 
             {/* Settings button */}
             <button
-              onClick={() => setShowPersonalization(o => !o)}
+              onClick={() => { setShowPersonalization(o => !o); setShowHistory(false); }}
               title="Settings"
               className="p-2 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
             >
-              <Settings size={18} />
+              <SlidersHorizontal size={18} />
             </button>
 
             {/* Theme toggle */}
@@ -232,131 +384,164 @@ export default function AdaptiveDashboard() {
               {isDark ? <Sun size={18} /> : <Moon size={18} />}
             </button>
 
-            {/* Logout */}
+            {/* User name + logout */}
+            <div className="hidden sm:flex items-center gap-2 ml-1 pl-3 border-l border-gray-200 dark:border-gray-700">
+              <span className="text-sm text-gray-600 dark:text-gray-400">{user?.name || 'User'}</span>
+              <button
+                onClick={logout}
+                title="Logout"
+                className="p-2 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-600 transition-colors"
+              >
+                <LogOut size={18} />
+              </button>
+            </div>
+            {/* Logout only on mobile */}
             <button
               onClick={logout}
               title="Logout"
-              className="p-2 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-600 transition-colors"
+              className="sm:hidden p-2 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-600 transition-colors"
             >
               <LogOut size={18} />
             </button>
           </div>
         </header>
 
-        {/* Main content */}
-        <main className="flex-1 overflow-y-auto p-6">
-          {/* Task banner */}
+        {/* Task Banner */}
+        <AnimatePresence>
           {isTransformed && (
             <TaskBanner
+              key="task-banner"
               taskTitle={taskTitle}
               description={taskDescription}
               onReset={handleReset}
-              showComparison={!!previousLayout}
-              onToggleComparison={() => setShowBeforeAfter(o => !o)}
+              onShowComparison={() => setShowBeforeAfter(o => !o)}
             />
           )}
+        </AnimatePresence>
 
-          {/* Intent input */}
+        {/* Main content */}
+        <main className="flex-1 overflow-y-auto p-4 md:p-6">
           <IntentBar onLayoutChange={handleLayoutChange} isLoading={isLoading} />
 
-          {/* Error */}
           {error && (
             <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-700 dark:text-red-400">
               {error}
             </div>
           )}
 
-          {/* Grid */}
           {isLoading
-            ? <LoadingSkeleton count={6} columns={layoutConfig?.layout?.columns || 3} />
-            : <DashboardLayout
+            ? <LoadingGrid />
+            : (
+              <DashboardLayout
                 componentKeys={visibleComponents}
                 layoutConfig={layoutConfig?.layout || { columns: 3 }}
               />
+            )
           }
 
-          {/* Inline feedback (Phase 5 placeholder) */}
-          {interactionId && showFeedback && (
-            <div className="mt-6 p-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 flex items-center justify-between text-sm">
-              <span className="text-gray-600 dark:text-gray-400">Was this layout helpful?</span>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setShowFeedback(false)}
-                  className="px-3 py-1.5 rounded-lg bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 hover:bg-green-200 transition-colors"
-                >
-                  👍 Yes
-                </button>
-                <button
-                  onClick={() => setShowFeedback(false)}
-                  className="px-3 py-1.5 rounded-lg bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400 hover:bg-gray-200 transition-colors"
-                >
-                  👎 No
-                </button>
-                <button
-                  onClick={() => setShowFeedback(false)}
-                  className="px-2 py-1.5 rounded-lg text-gray-400 hover:text-gray-600 transition-colors text-xs"
-                >
-                  Dismiss
-                </button>
-              </div>
-            </div>
+          {showFeedback && interactionId && (
+            <FeedbackWidget
+              interactionId={interactionId}
+              onFeedbackSubmit={() => setShowFeedback(false)}
+            />
           )}
         </main>
       </div>
 
       {/* Before/After Panel */}
-      <BeforeAfterPanel
-        previousLayout={previousLayout}
-        currentLayout={layoutConfig}
-        isVisible={showBeforeAfter}
-        onClose={() => setShowBeforeAfter(false)}
-      />
+      <AnimatePresence>
+        {showBeforeAfter && (
+          <BeforeAfterPanel
+            key="before-after"
+            previousLayout={previousLayout}
+            currentLayout={layoutConfig}
+            isVisible={showBeforeAfter}
+            onClose={() => setShowBeforeAfter(false)}
+          />
+        )}
+      </AnimatePresence>
 
-      {/* Layout History Panel (placeholder until Phase 5) */}
-      {showHistory && (
-        <div className="fixed inset-y-0 right-0 w-72 bg-white dark:bg-gray-800 shadow-2xl border-l border-gray-200 dark:border-gray-700 z-40 flex flex-col">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
-            <h3 className="font-semibold text-gray-900 dark:text-white text-sm">Layout History</h3>
-            <button onClick={() => setShowHistory(false)} className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 text-xs">✕</button>
-          </div>
-          <div className="flex-1 p-4">
-            <p className="text-sm text-gray-500 dark:text-gray-400">History will be available in Phase 5.</p>
-            {DEMO_LAYOUTS.map((l, i) => (
+      {/* Layout History Panel */}
+      <AnimatePresence>
+        {showHistory && (
+          <motion.div
+            key="history-panel"
+            initial={{ x: '100%' }}
+            animate={{ x: 0 }}
+            exit={{ x: '100%' }}
+            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+            className="fixed inset-y-0 right-0 w-72 bg-white dark:bg-gray-800 shadow-2xl border-l border-gray-200 dark:border-gray-700 z-40 flex flex-col"
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+              <h3 className="font-semibold text-gray-900 dark:text-white text-sm">Layout History</h3>
               <button
-                key={i}
-                onClick={() => handleRestoreLayout(l)}
-                className="w-full text-left mt-2 px-3 py-2.5 rounded-lg bg-gray-50 dark:bg-gray-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-sm text-gray-700 dark:text-gray-300 transition-colors"
+                onClick={() => setShowHistory(false)}
+                className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 text-xs"
               >
-                {l.taskTitle}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Personalization Panel (placeholder until Phase 5) */}
-      {showPersonalization && (
-        <div className="fixed inset-y-0 right-0 w-72 bg-white dark:bg-gray-800 shadow-2xl border-l border-gray-200 dark:border-gray-700 z-40 flex flex-col">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
-            <h3 className="font-semibold text-gray-900 dark:text-white text-sm">Settings</h3>
-            <button onClick={() => setShowPersonalization(false)} className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 text-xs">✕</button>
-          </div>
-          <div className="p-4 space-y-4">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-gray-700 dark:text-gray-300">Dark Mode</span>
-              <button
-                onClick={toggleTheme}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isDark ? 'bg-blue-600' : 'bg-gray-300'}`}
-              >
-                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${isDark ? 'translate-x-6' : 'translate-x-1'}`} />
+                ✕
               </button>
             </div>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              Full personalization panel coming in Phase 5.
-            </p>
-          </div>
-        </div>
-      )}
+            <div className="flex-1 overflow-y-auto p-4">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                Quick-launch a demo workspace:
+              </p>
+              {Object.values(FALLBACK_LAYOUTS).map(l => (
+                <button
+                  key={l.intent}
+                  onClick={() => { handleLayoutChange(l, null); setShowHistory(false); }}
+                  className="w-full text-left mt-2 px-3 py-2.5 rounded-lg bg-gray-50 dark:bg-gray-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-sm text-gray-700 dark:text-gray-300 transition-colors"
+                >
+                  {l.taskTitle}
+                </button>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Personalization Panel */}
+      <AnimatePresence>
+        {showPersonalization && (
+          <motion.div
+            key="settings-panel"
+            initial={{ x: '100%' }}
+            animate={{ x: 0 }}
+            exit={{ x: '100%' }}
+            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+            className="fixed inset-y-0 right-0 w-72 bg-white dark:bg-gray-800 shadow-2xl border-l border-gray-200 dark:border-gray-700 z-40 flex flex-col"
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+              <h3 className="font-semibold text-gray-900 dark:text-white text-sm">Settings</h3>
+              <button
+                onClick={() => setShowPersonalization(false)}
+                className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 text-xs"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-700 dark:text-gray-300">Dark Mode</span>
+                <button
+                  onClick={toggleTheme}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                    isDark ? 'bg-blue-600' : 'bg-gray-300'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                      isDark ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Full personalization panel coming in Phase 5.
+              </p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
