@@ -20,6 +20,7 @@ app.use(express.json());
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/layout', aiRoutes); // alias: /api/layout/transform maps to /api/ai/generate-layout behaviour
 app.use('/api/feedback', feedbackRoutes);
 app.use('/api/workspaces', workspacesRoutes);
 app.use('/api/preferences', preferencesRoutes);

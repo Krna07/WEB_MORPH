@@ -227,8 +227,8 @@ export default function AdaptiveDashboard() {
       setIsLoading(true);
       setError(null);
       try {
-        const res = await axios.post('/api/layout/transform', { query: queryOrConfig });
-        const config = res.data;
+        const res = await axios.post('/api/ai/generate-layout', { prompt: queryOrConfig });
+        const config = res.data?.layoutConfig || res.data;
         await applyLayout(config, config.interactionId || Date.now().toString());
       } catch {
         // Keyword fallback

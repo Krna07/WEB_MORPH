@@ -257,7 +257,7 @@ router.post('/interpret', verifyToken, aiRateLimit, async (req, res, next) => {
   }
 });
 
-// POST /api/ai/generate-layout
+// POST /api/ai/generate-layout (also mounted as /api/layout/generate-layout)
 router.post('/generate-layout', verifyToken, aiRateLimit, async (req, res, next) => {
   try {
     const { prompt } = req.body;
@@ -277,6 +277,34 @@ router.post('/generate-layout', verifyToken, aiRateLimit, async (req, res, next)
     await interaction.save();
 
     res.json({ layoutConfig, interactionId: interaction._id });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/ai/transform  (alias used by frontend via /api/layout/transform)
+router.post('/transform', verifyToken, aiRateLimit, async (req, res, next) => {
+  try {
+    const prompt = req.body.query || req.body.prompt;
+    if (!prompt) {
+      return res.status(400).json({ error: 'Prompt or query is required' });
+    }
+
+    const layoutConfig = await getAILayout(prompt);
+
+    // Save interaction to DB
+    try {
+      const interaction = new Interaction({
+        userId: req.userId,
+        prompt,
+        aiResponse: layoutConfig,
+        layoutApplied: layoutConfig,
+      });
+      await interaction.save();
+      return res.json({ ...layoutConfig, interactionId: interaction._id });
+    } catch {
+      return res.json(layoutConfig);
+    }
   } catch (err) {
     next(err);
   }
