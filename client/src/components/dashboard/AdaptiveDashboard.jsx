@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Sun, Moon, LogOut, History, Settings, Play } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import AdaptiveNav from '../layout/AdaptiveNav';
-import IntentBar from '../layout/IntentBar';
+import IntentBar from './IntentBar';
 import TaskBanner from '../layout/TaskBanner';
 import LoadingSkeleton from '../layout/LoadingSkeleton';
 import BeforeAfterPanel from '../layout/BeforeAfterPanel';

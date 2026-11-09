@@ -202,32 +202,15 @@ async function getAILayout(prompt) {
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
-    const systemPrompt = `You are an AI dashboard layout engine for WebMorph, a business analytics platform.
-
-Given a user's business objective, return a JSON layout configuration.
-
-Available components: ${COMPONENT_WHITELIST.join(', ')}
-
-Return ONLY valid JSON with this exact structure:
-{
-  "intent": "string (e.g. transaction_investigation, revenue_analysis, customer_analysis, product_performance, regional_sales, default)",
-  "taskTitle": "string",
-  "description": "string",
-  "layout": { "type": "string (investigation|analysis|grid|map)", "columns": 2 },
-  "visibleComponents": ["array of component names from the whitelist"],
-  "hiddenComponents": ["array of component names to hide"],
-  "filters": {},
-  "navigation": ["array of nav item strings"],
-  "priority": ["array of priority keys"]
-}
-
-Only include components from the whitelist in visibleComponents and hiddenComponents.
-User objective: "${prompt}"`;
+    const systemPrompt = `You are a UI intent classifier for WebMorph business analytics dashboard. Analyze the user objective and return ONLY valid JSON (no markdown, no code blocks, no explanation). Schema: { "intent": "snake_case_string", "taskTitle": "string", "description": "string", "layout": { "type": "string", "columns": 2 }, "visibleComponents": ["4 to 8 component names from whitelist"], "hiddenComponents": ["array"], "filters": {}, "navigation": ["3 to 5 nav item strings"], "priority": ["array"] }. Whitelist: RevenueCard, OrdersCard, CustomerCard, ConversionCard, RevenueChart, SalesChart, CustomerGrowthChart, TransactionTable, RegionalSalesChart, ProductPerformance, NotificationPanel, MarketingAnalytics, FailureAnalytics, FailedTransactionTable, ErrorDistribution, ResolutionPanel, CustomerSegmentation, ChurnAnalysis, CustomerLifetimeValue, EngagementMetrics, ProductRankingTable, DecliningSalesChart, InventoryStatus, ProfitMarginChart, RegionalMap, CityPerformance, SalesRepPerformance, RegionalComparison. User objective: ${prompt}`;
 
     const result = await model.generateContent(systemPrompt);
-    const text = result.response.text();
+    let text = result.response.text();
 
-    // Extract JSON from the response
+    // Strip markdown code blocks (```json ... ``` or ``` ... ```)
+    text = text.replace(/```(?:json)?\s*/gi, '').replace(/```/g, '');
+
+    // Extract JSON object from the response
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) throw new Error('No JSON found in AI response');
 
