@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   Sun, Moon, LogOut, History, SlidersHorizontal, Play,
-  Menu, Clock, Zap
+  Menu, Clock, Zap, Github
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useAuth } from '../../context/AuthContext';
@@ -15,6 +15,7 @@ import FeedbackWidget from '../feedback/FeedbackWidget';
 import LayoutHistory from '../history/LayoutHistory';
 import PersonalizationPanel from '../personalization/PersonalizationPanel';
 import LoadingSkeleton from '../common/LoadingSkeleton';
+import AIWarningToast from '../common/AIWarningToast';
 
 // ---------------------------------------------------------------------------
 // Inline TaskBanner
@@ -133,6 +134,8 @@ export default function AdaptiveDashboard() {
   const [error, setError] = useState(null);
   const [isDemoRunning, setIsDemoRunning] = useState(false);
   const [activeNavItem, setActiveNavItem] = useState('Overview');
+  const [aiWarning, setAiWarning] = useState(null);
+  const [insights, setInsights] = useState({});
 
   const feedbackTimerRef = useRef(null);
 
@@ -195,7 +198,7 @@ export default function AdaptiveDashboard() {
   const visibleComponents = layoutConfig?.visibleComponents || defaultLayout;
 
   // Core: apply a layout config
-  const applyLayout = async (config, id) => {
+  const applyLayout = async (config, id, insightsData) => {
     setPreviousLayout(visibleComponents);
     setLayoutConfig(config);
     setIsTransformed(true);
@@ -205,6 +208,14 @@ export default function AdaptiveDashboard() {
     setTaskDescription(config.description || '');
     setShowFeedback(true);
     if (config.navigation?.length) setActiveNavItem(config.navigation[0]);
+
+    // Show AI warning toast if Gemini fell back to keyword detection
+    if (config.aiWarning) {
+      setAiWarning({ aiWarning: config.aiWarning, aiWarningMessage: config.aiWarningMessage });
+    } else {
+      setAiWarning(null);
+    }
+    setInsights(insightsData || {});
 
     // Non-critical auto-save
     try {
@@ -249,8 +260,20 @@ export default function AdaptiveDashboard() {
         setIsLoading(false);
       }
     } else {
-      // Config object passed directly (demo mode, history restore)
-      await applyLayout(queryOrConfig, incomingInteractionId || Date.now().toString());
+      // Config object passed directly (from stream, demo mode, history restore)
+      let insightsData = {};
+      if (queryOrConfig.visibleComponents?.length) {
+        try {
+          const insightRes = await axios.post('/ai/generate-with-insights', {
+            prompt: queryOrConfig.taskTitle || queryOrConfig.intent || '',
+            visibleComponents: queryOrConfig.visibleComponents,
+          });
+          insightsData = insightRes.data?.insights || {};
+        } catch {
+          // insights failed — continue without them
+        }
+      }
+      await applyLayout(queryOrConfig, incomingInteractionId || Date.now().toString(), insightsData);
     }
   };
 
@@ -264,6 +287,8 @@ export default function AdaptiveDashboard() {
     setInteractionId(null);
     setShowFeedback(false);
     setActiveNavItem('Overview');
+    setAiWarning(null);
+    setInsights({});
     if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
   };
 
@@ -365,6 +390,17 @@ export default function AdaptiveDashboard() {
               <SlidersHorizontal size={18} />
             </button>
 
+            {/* GitHub link */}
+            <a
+              href="https://github.com/Krna07/WEB_MORPH"
+              target="_blank"
+              rel="noopener noreferrer"
+              title="View on GitHub"
+              className="p-2 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            >
+              <Github size={18} />
+            </a>
+
             {/* Theme toggle */}
             <button
               onClick={toggleTheme}
@@ -413,6 +449,8 @@ export default function AdaptiveDashboard() {
         <main className="flex-1 overflow-y-auto p-4 md:p-6">
           <IntentBar onLayoutChange={handleLayoutChange} isLoading={isLoading} />
 
+          <AIWarningToast warning={aiWarning} onDismiss={() => setAiWarning(null)} />
+
           {error && (
             <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-700 dark:text-red-400">
               {error}
@@ -425,6 +463,7 @@ export default function AdaptiveDashboard() {
               <DashboardLayout
                 componentKeys={visibleComponents}
                 layoutConfig={layoutConfig?.layout || { columns: 3 }}
+                insights={insights}
               />
             )
           }
