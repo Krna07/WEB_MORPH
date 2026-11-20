@@ -194,7 +194,8 @@ function getKeywordLayout(prompt) {
 // Gemini AI call with fallback
 async function getAILayout(prompt) {
   if (!process.env.GEMINI_API_KEY) {
-    return getKeywordLayout(prompt);
+    const layout = getKeywordLayout(prompt);
+    return { ...layout, aiWarning: 'no_api_key', aiWarningMessage: 'Gemini API key is not configured. Using keyword-based intent detection.' };
   }
 
   try {
@@ -231,7 +232,27 @@ async function getAILayout(prompt) {
     return parsed;
   } catch (err) {
     console.error('Gemini AI error, falling back to keyword detection:', err.message);
-    return getKeywordLayout(prompt);
+    const layout = getKeywordLayout(prompt);
+
+    // Classify the error type for a helpful frontend message
+    let aiWarning = 'api_error';
+    let aiWarningMessage = `Gemini AI error: ${err.message}. Using keyword-based detection instead.`;
+
+    if (err.message?.includes('API_KEY') || err.message?.includes('API key') || err.message?.includes('invalid')) {
+      aiWarning = 'invalid_api_key';
+      aiWarningMessage = 'Gemini API key is invalid or unauthorized. Check your GEMINI_API_KEY in server/.env.';
+    } else if (err.message?.includes('quota') || err.message?.includes('RESOURCE_EXHAUSTED')) {
+      aiWarning = 'quota_exceeded';
+      aiWarningMessage = 'Gemini API quota exceeded. Using keyword-based detection. Try again later.';
+    } else if (err.message?.includes('SAFETY') || err.message?.includes('blocked')) {
+      aiWarning = 'safety_blocked';
+      aiWarningMessage = 'Gemini blocked the request for safety reasons. Using keyword-based detection.';
+    } else if (err.message?.includes('network') || err.message?.includes('ECONNREFUSED') || err.message?.includes('fetch')) {
+      aiWarning = 'network_error';
+      aiWarningMessage = 'Could not reach Gemini API. Check your internet connection. Using keyword-based detection.';
+    }
+
+    return { ...layout, aiWarning, aiWarningMessage };
   }
 }
 
@@ -310,4 +331,140 @@ router.post('/transform', verifyToken, aiRateLimit, async (req, res, next) => {
   }
 });
 
+// GET /api/ai/stream  — Server-Sent Events streaming endpoint
+router.get('/stream', aiRateLimit, async (req, res) => {
+  const { prompt, token } = req.query;
+
+  // Validate prompt
+  if (!prompt) {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.write('data: {"type":"error","message":"Prompt is required"}\n\n');
+    return res.end();
+  }
+
+  // Verify JWT manually (EventSource cannot set headers)
+  try {
+    const jwt = require('jsonwebtoken');
+    jwt.verify(token, process.env.JWT_SECRET);
+  } catch {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.write('data: {"type":"error","message":"Unauthorized"}\n\n');
+    return res.end();
+  }
+
+  // SSE headers
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  // Check if Gemini streaming is available
+  if (!process.env.GEMINI_API_KEY) {
+    // Fall back: immediately send done with keyword layout
+    const layoutConfig = getKeywordLayout(prompt);
+    res.write(`data: ${JSON.stringify({ type: 'done', layoutConfig })}\n\n`);
+    return res.end();
+  }
+
+  try {
+    const { GoogleGenerativeAI } = require('@google/generative-ai');
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+
+    const streamingPrompt = `You are a WebMorph AI assistant. The user wants to: "${prompt}". Briefly explain (2-3 sentences) what dashboard layout you are generating and why these widgets are most relevant. Be specific and professional.`;
+
+    // Stream the explanation text
+    const streamResult = await model.generateContentStream(streamingPrompt);
+    for await (const chunk of streamResult.stream) {
+      const text = chunk.text();
+      if (text) {
+        res.write(`data: ${JSON.stringify({ type: 'chunk', text })}\n\n`);
+      }
+    }
+
+    // After streaming, generate the layout config
+    const layoutConfig = await getAILayout(prompt);
+    res.write(`data: ${JSON.stringify({ type: 'done', layoutConfig })}\n\n`);
+    res.end();
+  } catch (err) {
+    console.error('SSE stream error:', err.message);
+    // On error, fall back to keyword detection silently
+    try {
+      const layoutConfig = getKeywordLayout(prompt);
+      res.write(`data: ${JSON.stringify({ type: 'done', layoutConfig })}\n\n`);
+    } catch {
+      res.write(`data: ${JSON.stringify({ type: 'error', message: err.message })}\n\n`);
+    }
+    res.end();
+  }
+});
+
+// POST /api/ai/generate-with-insights
+router.post('/generate-with-insights', verifyToken, aiRateLimit, async (req, res, next) => {
+  try {
+    const { prompt, visibleComponents: reqComponents } = req.body;
+    if (!prompt) {
+      return res.status(400).json({ error: 'Prompt is required' });
+    }
+
+    // Step 1: get layout config using existing function
+    const layoutConfig = await getAILayout(prompt);
+
+    // Step 2: generate insights per visible component
+    let insights = {};
+    const targetComponents = Array.isArray(reqComponents) && reqComponents.length > 0
+      ? reqComponents.filter(c => COMPONENT_WHITELIST.includes(c))
+      : (layoutConfig.visibleComponents || []);
+
+    if (process.env.GEMINI_API_KEY && targetComponents.length > 0) {
+      try {
+        const { GoogleGenerativeAI } = require('@google/generative-ai');
+        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+
+        const insightPrompt = `You are a business analytics AI. The user's intent is: "${prompt}".
+Generate a JSON object where each key is one of these component names and each value is an insight object.
+Components: ${targetComponents.join(', ')}.
+For each component return ONLY this JSON shape (no markdown, no code blocks):
+{ "ComponentName": { "insight": "1-2 sentences specific and data-driven using realistic business context", "highlight": "critical|warning|positive|info", "badge": "short label like ↓ 23% or 847 failed or +12% MoM" } }
+Return only the JSON object, no explanation.`;
+
+        const result = await model.generateContent(insightPrompt);
+        let text = result.response.text();
+        text = text.replace(/\`\`\`(?:json)?\s*/gi, '').replace(/\`\`\`/g, '');
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          // Only keep whitelisted component keys
+          for (const key of Object.keys(parsed)) {
+            if (COMPONENT_WHITELIST.includes(key)) {
+              insights[key] = parsed[key];
+            }
+          }
+        }
+      } catch (insightErr) {
+        console.error('Insight generation failed, continuing without insights:', insightErr.message);
+        insights = {};
+      }
+    }
+
+    // Save interaction
+    try {
+      const interaction = new Interaction({
+        userId: req.userId,
+        prompt,
+        aiResponse: layoutConfig,
+        layoutApplied: layoutConfig,
+      });
+      await interaction.save();
+      return res.json({ layoutConfig, insights, interactionId: interaction._id });
+    } catch {
+      return res.json({ layoutConfig, insights });
+    }
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;
+
