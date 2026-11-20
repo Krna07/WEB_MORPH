@@ -153,8 +153,8 @@ export default function AdaptiveDashboard() {
     const restoreSaved = async () => {
       try {
         const [prefRes, dashRes] = await Promise.all([
-          axios.get('/api/preferences'),
-          axios.get('/api/dashboard'),
+          axios.get('/preferences'),
+          axios.get('/dashboard'),
         ]);
         // Restore theme from saved preferences
         const savedTheme = prefRes.data?.theme;
@@ -219,7 +219,7 @@ export default function AdaptiveDashboard() {
 
     // Non-critical auto-save
     try {
-      await axios.post('/api/workspaces', {
+      await axios.post('/workspaces', {
         title: config.taskTitle || 'Saved Layout',
         intent: config.intent || '',
         layoutConfig: config,
@@ -238,7 +238,7 @@ export default function AdaptiveDashboard() {
       setIsLoading(true);
       setError(null);
       try {
-        const res = await axios.post('/api/ai/generate-layout', { prompt: queryOrConfig });
+        const res = await axios.post('/ai/generate-layout', { prompt: queryOrConfig });
         const config = res.data?.layoutConfig || res.data;
         await applyLayout(config, config.interactionId || Date.now().toString());
       } catch {
